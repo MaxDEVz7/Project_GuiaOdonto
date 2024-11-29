@@ -1,30 +1,71 @@
-from login import * #importa tudo do codigo login (tudo == *)
-import pandas as pd #importa pandas como pd(nomeclatura)
+from login import *
+from downloads_automação import *
+from Criação_das_planilhas import *
 
-time.sleep(5) # aguarda 3 segundos
-driver.find_element(by=By.XPATH, value='/html/body/div[3]/div/div/div[1]/button').click() # fecha o popup de avaliação do guiaodonto
+import sqlite3
+import csv
 
-button_mes = driver.find_element(by=By.XPATH, value='//*[@id="calendar"]/div[1]/div[2]/div/button[1]') # Busca o elemento do botão mês via XPATH
-button_mes.click() # Clica no botão mês
-time.sleep(3) # aguarda 3 segundos
+# Importando CSV
+arquivo_csv = new + '\\Planilha_para_Metabase\\planilha_com_todos_pacientes_orto_com_status.csv'
+db = r"C:\Users\maxwi\Esamc_PERIODO1_SI\Esamc inovação e comunicação\code\ProjetoGuiaOdonto.db"
 
-nomes_pacientes = []
-status = []
+# Conectando ao banco de dados
+conn = sqlite3.connect(db)
+cursor = conn.cursor()
 
-for nomes in driver.find_elements(by=By.CLASS_NAME, value='fc-title'): #um loop que procura todos os elementos EXISTENTES por uma classe de valor fc-title
-    nomes.click() #clica no elemento que mostra a tela de status e informações em relação a agenda do paciente
-    time.sleep(1) #aguarda 1 segundo
+# Verificar se a tabela existe e apagá-la, se necessário
+cursor.execute("DROP TABLE IF EXISTS agendamentos_auto")
 
-    if driver.find_element(by=By.CLASS_NAME, value='selectize-control.demo-default.select-status.single').text != '': # compara o texto do elemento pelo valor de sua classe com o texto de status (no caso é o 'Não confirmado')
-        nomes_pacientes.append(f'{nomes.text}') # da um append e adiciona na lista o nome do elemento fc-title
-        status.append(driver.find_element(by=By.CLASS_NAME, value='selectize-control.demo-default.select-status.single').text)
-    driver.find_element(by=By.XPATH, value='/html/body/div[3]/div/div/div[1]/button').click() # acha o elemento de fechar a tela de status
+# Criando tabela com as colunas correspondentes ao CSV
+cursor.execute('''
+CREATE TABLE agendamentos_auto (
+    Nome TEXT,
+    Telefone TEXT,
+    E_mail TEXT,
+    Data_nascimento TEXT, 
+    Cidade TEXT,
+    CPF TEXT,
+    Convenio TEXT,
+    Status TEXT,
+    Data_Consulta TEXT
+)
+''')
 
-dados = { # organização dos dados por dicionario
-    'Paciente' : nomes_pacientes,
-    'Status' : status
-}
+# Lendo o CSV com codificação ajustada
+with open(arquivo_csv, newline='', encoding='utf-8') as csvfile:  # Use 'latin1' ou outra codificação identificada
+    leitor = csv.reader(csvfile)
+    colunas = next(leitor)  # Lê o cabeçalho do CSV
+    
 
-df = pd.DataFrame.from_dict(dados, orient='index') # organização dos dados (obs: index um paramentro que sera utilizado na proxima linha)
-df = df.transpose() # vai ignorar se as listas possui tamanhos diferentes e não vai dar erro
-df.to_excel('projeto_final.xlsx', index=False) # tranforma tudo para xlsx (excel)
+    
+    # Garantir que o número de colunas no CSV é o mesmo da tabela
+    if len(colunas) != 9:
+        raise ValueError(f"CSV possui {len(colunas)} colunas, mas a tabela exige 9 colunas!")
+
+    # Gerar query dinamicamente com base nas colunas
+    query_inserir = f"INSERT INTO agendamentos_auto ({', '.join(colunas)}) VALUES ({', '.join('?' for _ in colunas)})"
+    
+    # Inserir os dados diretamente sem substituições
+    for linha in leitor:
+        # try:
+            # Substituir valores vazios ('') por None (NULL no SQLite)
+            linha = [None if valor.strip() == '' else valor for valor in linha]
+
+             # Substituindo valores de uma coluna específica (por exemplo, coluna 'Status')
+            for i, valor in enumerate(linha):
+                # Verifique a coluna de interesse (exemplo: Status está na última coluna)
+                if colunas[i] == 'Data_Consulta':
+                    if valor == 'Sem Registro':
+                        linha[i] = None
+                              
+            cursor.execute(query_inserir, linha)
+        # except sqlite3.OperationalError as e:
+        #     print(f"Erro ao inserir linha {linha}: {e}")
+        # except Exception as ex:
+        #     print(f"Erro inesperado ao inserir linha {linha}: {ex}")
+
+# Salvar alterações e fechar conexão
+conn.commit()
+conn.close()
+
+print("CSV importado com sucesso para o SQLite!")
